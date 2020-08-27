@@ -22,7 +22,7 @@ sapply(
   function(x) {
     is.there <- x %in% rownames(installed.packages())
     if (is.there == FALSE) {
-      install.packages(x)
+      install.packages(x, dependencies = T)
     }
   }
 )
@@ -31,7 +31,6 @@ sapply(
 library(doParallel)
 library(foreach)
 library(tidyverse)
-library(filesstrings)
 
 #' LOAD FUNCTIONS
 source("scripts/functions.R")
@@ -48,10 +47,10 @@ rut.out <- "data/raster/mod11a2/withFILTER"
 #'   Mandatory QA flags -------------------------> bit 00-01
 #'   Data quality flag --------------------------> bit 02-03
 #'   Emis Error flag ----------------------------> bit 04-05
-#'   LST LST Error flag -------------------------> bit 06-07
+#'   LST Error flag -----------------------------> bit 06-07
 
 filter <- list(
-  c("10", "11"), 
+  c("10", "11"), c("10", "11"), c("10", "11"), c("10", "11")
 )
 
 #' LIST OF QA BANDS
@@ -82,7 +81,7 @@ foreach(i = 1:length(qa)) %dopar% {
     raster(qa[i]),
     "mxd11a2", filter
   )
-  
+
   name <- band[i] %>%
     basename() %>%
     str_sub(1, -13) %>%
@@ -94,12 +93,13 @@ foreach(i = 1:length(qa)) %dopar% {
     dir.create(sprintf("%s/%s", rut.in, k.yr))
   }
 
-  if (!sprintf("%s/%s", rut.out, k.yr) %>% dir.exists()) {
-    dir.create(sprintf("%s/%s", rut.out, k.yr))
-  }
+  writeRaster(
+    file, sprintf("%s/%s", rut.out, name),
+    overwrite = T, datatype = "INT2S"
+  )
 
-  writeRaster(file, sprintf("%s/%s", rut.out, name), overwrite = T)
   file.move(band[i], sprintf("%s/%s", rut.in, k.yr))
+  file.move(qa[i], sprintf("%s/%s", rut.in, k.yr))
 }
 
 #' end cluster
