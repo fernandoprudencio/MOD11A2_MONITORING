@@ -1,23 +1,23 @@
 #' @title
-#' Plot the seasonal evolution of Hot Day Frequency
+#' Plot the seasonal evolution of Hot Day Frequency (HDF OF LAND SURFACE)
 #'
 #' @description
-#' this script plots the seasonal evolution of Hot Day Frequency (HDF) by
-#'   region (vectorial data)
+#' this script plots the seasonal evolution of Hot Day Frequency
+#'   (HDF OF LAND SURFACE) by region (vectorial data)
 #'
 #' @author Fernando Prudencio
 
 rm(list = ls())
 
 #' INSTALL PACKAGES
-pkg <- c("raster", "tidyverse", "sf", "Hmisc", "extrafont", "grid")
+pkg <- c("raster", "tidyverse", "sf", "Hmisc", "extrafont", "grid", "stringr")
 
 sapply(
   pkg,
   function(x) {
     is.there <- x %in% rownames(installed.packages())
     if (is.there == FALSE) {
-      install.packages(x)
+      install.packages(x, dependencies = T)
     }
   }
 )
@@ -29,16 +29,20 @@ library(sf)
 library(Hmisc)
 library(extrafont)
 library(grid)
+library(stringr)
 
 #' LOAD FUNCTIONS
-#source("scripts/functions.R")
+# source("scripts/functions.R")
 
 #' LOAD CONSTANTS
 k.data <- "mod11a2"
-k.thrhld <- .9
+# k.thrhld <- .9
 k.dry.yr <- c(2005, 2010, 2016) # dry years
-link.rgns <- "data/vector/cluster_region.gpkg"
-k.regions <- 8
+# link.rgns <- "data/vector/cluster_region.gpkg"
+link.basin <- "data/vector/basins.gpkg"
+# k.region <- c(6,8)
+k.region <- "ucayali"
+k.elev.thrshl <- 1500
 
 #' CREATE DATE VECTOR
 date <- Sys.Date()
@@ -48,14 +52,14 @@ day <- str_sub(date, 9, 10) %>% as.numeric()
 
 for (i in 2000:year) {
   if (i == 2000) {
-    ts <- c(
+    k.prd <- c(
       seq(as.Date("2000-02-18"), as.Date("2000-02-29"), by = "8 day"),
       seq(as.Date("2000-03-06"), as.Date("2000-12-31"), by = "8 day")
     )
   }
   if (i >= 2001 & i <= year - 1) {
-    ts <- c(
-      ts,
+    k.prd <- c(
+      k.prd,
       seq(as.Date(sprintf("%s-01-01", i)),
         as.Date(sprintf("%s-02-28", i)),
         by = "8 day"
@@ -67,8 +71,8 @@ for (i in 2000:year) {
     )
   }
   if (i == year & as.numeric(month) <= 2) {
-    ts <- c(
-      ts,
+    k.prd <- c(
+      k.prd,
       seq(as.Date(sprintf("%s-01-01", i)),
         as.Date(sprintf("%s-%s-%s", i, month, day)),
         by = "8 day"
@@ -76,8 +80,8 @@ for (i in 2000:year) {
     )
   }
   if (i == year & as.numeric(month) > 2) {
-    ts <- c(
-      ts,
+    k.prd <- c(
+      k.prd,
       seq(as.Date(sprintf("%s-01-01", i)),
         as.Date(sprintf("%s-02-28", i)),
         by = "8 day"
@@ -90,95 +94,131 @@ for (i in 2000:year) {
   }
 }
 
-k.prd <- ts
-
 #' READ LIST OF RASTER DATA
 lst.data <- list.files(
   sprintf("data/raster/%s/withFILTER", k.data),
   pattern = "LST_Day", full.names = T
 )
-#lst.lng <- length(lst.data)
+
+#' READ DEM
+dem <- raster("data/raster/dem/srtm_500m.tif") %>%
+  resample(raster(lst.data[1])) %>%
+  "names<-"("dem")
 
 #' READ VECTORIAL DATA
 #'   load cluster region
+# sf.region <- st_read(
+#   dsn = link.rgns,
+#   layer = "pam_k8_eucl_woPCA", quiet = T, as_tibble = T
+# ) %>%
+#   filter(gridcode %in% k.region) %>%
+#   mutate(id = 1) %>%
+#   group_by(id) %>%
+#   summarise()
+#'   load basin region
 sf.region <- st_read(
-  dsn = link.rgns,
-  layer = "pam_k8_eucl_woPCA", quiet = T, as_tibble = T
-) %>%
-  filter(gridcode %in% k.regions) %>%
-  mutate(id = 1) %>%
-  group_by(id) %>%
-  summarise()
+  dsn = link.basin, layer = k.region, quiet = T, as_tibble = T
+)
 
 #' EXTRACT RASTER VALUES FROM VECTORIAL DATA
-file <- sprintf("data/rdata/%s_avg_Day_clus%s.RData", k.data, k.regions)
-
-if (file.exists(file)) {
-  load(
-    sprintf("data/rdata/%s_avg_Day_clus%s.RData", k.data, k.regions)
+if (length(k.region) == 1) {
+  file <- sprintf(
+    "data/rdata/%1$s_avg_Day_clus_%2$s_andes.RData", k.data, k.region
   )
-  if (length(vls.stk) < length(ts)) {
-    strt <- length(vls.stk) + 1
-    end <- length(ts)
-    for (i in strt:end) {
-      vls.day <- raster::extract(raster(lst.data[i]), sf.region) %>%
-        lapply(
-          function(x) if (!is.null(x)) mean(x, na.rm = TRUE) else NA
-        ) %>%
-        unlist()
-
-      if (i == strt) vls.mn <- vls.day else vls.mn <- c(vls.mn, vls.day)
-    }
-    
-    vls.stk <- c(vls.stk, vls.mn)
-    save(
-      vls.stk,
-      file = sprintf("data/rdata/%s_avg_MxT_clus%s.RData", k.data, k.regions)
-    )
-  }
 } else {
-  for (i in 1:lst.lng) {
-    print(i)
-    vls.day <- raster::extract(raster(lst.data[i]), sf.region) %>%
-      lapply(
-        function(x) if (!is.null(x)) mean(x, na.rm = TRUE) else NA
-      ) %>%
-      unlist()
-
-    if (i == 1) vls.stk <- vls.day else vls.stk <- c(vls.stk, vls.day)
-  }
-  save(
-    vls.stk,
-    file = sprintf("data/rdata/%s_avg_Day_clus%s.RData", k.data, k.regions)
+  file <- sprintf(
+    "data/rdata/%1$s_avg_Day_clus_%2$s_andes.RData", k.data,
+    str_flatten(k.region, collapse = "-")
   )
 }
 
-#' BUILD A DATAFRAME OF TEMPERATURE DATE
-df.rgn.data <- tibble(
-  date = ts[1:length(vls.stk)],
-  values = (vls.stk * .02) + (-273.15) 
-) %>%
-  group_by(str_sub(date, 1, 4)) %>%
-  summarise(values = mean(values, na.rm = T))
+if (file.exists(file)) {
+  load(file)
 
+  if (length(vls.stk) < length(k.prd)) {
+    strt <- length(vls.stk) + 1
+    end <- length(k.prd)
+
+    for (i in strt:end) {
+      print(i)
+      vls.day <- raster(lst.data[i]) %>%
+        stack(dem) %>%
+        crop(sf.region) %>%
+        raster::mask(sf.region) %>%
+        getValues() %>%
+        as_tibble() %>%
+        dplyr::filter(dem > k.elev.thrshl) %>%
+        dplyr::select(-dem) %>%
+        apply(2, FUN = function(x) mean(x, na.rm = T))
+
+      if (i == strt) vls.mn <- vls.day else vls.mn <- c(vls.mn, vls.day)
+    }
+
+    vls.stk <- c(vls.stk, vls.mn)
+    save(vls.stk, file = file)
+  }
+} else {
+  for (i in length(lst.data) %>% seq_len()) {
+    print(i)
+    vls.day <- raster(lst.data[i]) %>%
+      stack(dem) %>%
+      crop(sf.region) %>%
+      raster::mask(sf.region) %>%
+      getValues() %>%
+      as_tibble() %>%
+      dplyr::filter(dem > k.elev.thrshl) %>%
+      dplyr::select(-dem) %>%
+      apply(2, FUN = function(x) mean(x, na.rm = T))
+
+    if (i == 1) vls.stk <- vls.day else vls.stk <- c(vls.stk, vls.day)
+  }
+
+  save(vls.stk, file = file)
+}
+
+#' BUILD A DATAFRAME OF LST DATA AND LST DATE
+#'   yearly data
+# df.rgn.data <- tibble(
+#   date = k.prd[1:length(vls.stk)],
+#   values = (vls.stk * .02) + (-273.15)
+# ) %>%
+#   group_by(date = as.integer(str_sub(date, 1, 4))) %>%
+#   summarise(values = mean(values, na.rm = T))
+
+#' LOAD RDATA
+load("data/rdata/mod11a2_avg_Day_clus_6-8.RData")
+load("data/rdata/mod11a2_avg_Day_clus_8.RData")
+load("data/rdata/mod11a2_avg_Day_clus_6.RData")
+
+#' BUILD A DATAFRAME OF LST DATA AND LST DATE
+#'   each 8 days
 df.rgn.data <- tibble(
-  date = ts[1:length(vls.stk)],
-  values = (vls.stk * .02) + (-273.15) 
+  date = k.prd[1:length(vls.stk)],
+  values = (vls.stk * .02) + (-273.15)
 ) %>%
   mutate(month = str_sub(date, 6, 7)) %>%
   group_by(month) %>%
-  mutate(decil = quantile(values, .9, na.rm = T)) %>% #k.thrhld
+  mutate(
+    #decil = quantile(values, .9, na.rm = T),
+    decil = mean(values, na.rm = T) + sd(values, na.rm = T)
+  ) %>% # k.thrhld
   ungroup() %>%
-  mutate(hdf = ifelse(values >= decil, 1, 0)) %>% #26.43634
+  mutate(
+    hdf = ifelse(values >= decil, 1, 0),
+    hdf = ifelse(is.na(hdf), 0, hdf)
+  ) %>% # 26.02289
   filter(
-    #date <= as.Date(k.date.end) &
     str_sub(date, 6, 7) %nin% c("01", "02")
   )
 
-#' DATAFRAME WITH AVERAGE ACCUMULATED HDF BY CLUSTER REGION
-#yr.str <- str_sub(k.date.str, 1, 4) %>% as.numeric()
+clus68 <- df.rgn.data$decil %>% unique()
+clus8 <- df.rgn.data$decil %>% unique()
+clus6 <- df.rgn.data$decil %>% unique()
+x <- tibble(clus68, clus8, clus6)
+save(x, file = "data/rdata/threshol_clus68.RData")
+
+#' BUILD DATAFRAME WITH AVERAGE ACCUMULATED HDF
 yr.str <- str_sub(first(k.prd), 1, 4) %>% as.numeric()
-#yr.end <- str_sub(k.date.end, 1, 4) %>% as.numeric()
 yr.end <- str_sub(last(k.prd), 1, 4) %>% as.numeric()
 k.years <- yr.str:yr.end
 
@@ -189,7 +229,7 @@ for (i in k.years) {
       mutate(hdf.ac = cumsum(hdf)) %>%
       dplyr::select(hdf.ac)
 
-    names(df.hdf.ac)[i - (k.years[1] - 1)] <- sprintf("yr.%s", i)
+    names(df.hdf.ac) <- sprintf("yr.%s", i)
   } else {
     df.hdf.ac <- df.hdf.ac %>%
       mutate(id = 1:n()) %>%
@@ -207,10 +247,12 @@ for (i in k.years) {
   }
 }
 
-#' DATAFRAME WITH AVERAGE ACCUMULATED HDF BY CLUSTER REGION, DURING DRY YEARS
+#' DATAFRAME WITH AVERAGE ACCUMULATED HDF, DURING DRY YEARS
 #'   AND NORMAL YEARS
 df.hdf.ac.norm <- df.hdf.ac %>%
-  dplyr::select(sprintf("yr.%s", k.years[k.years %nin% c(k.dry.yr, yr.end)]))
+  dplyr::select(
+    sprintf("yr.%s", k.years[k.years %nin% c(k.dry.yr, yr.end)])
+  )
 
 df.hdf <- df.hdf.ac %>%
   mutate(
@@ -253,19 +295,19 @@ plt.hdf <- ggplot(df.hdf, aes(date, value, group = type)) +
   scale_x_date(
     limits = c(as.Date("2020-03-01"), as.Date("2020-12-31")),
     breaks = seq(as.Date("2020-03-01"), as.Date("2020-12-31"), by = "1 month"),
-    date_labels = "%b", expand = expansion(mult = c(.02, 0))
+    date_labels = "%b", expand = expansion(mult = c(0, 0))
   ) +
   scale_y_continuous(
-    breaks = seq(0, 32, 2),
-    limits = c(-.003, 32),
+    breaks = seq(0, 20, 2),
+    limits = c(-.003, 20),
     expand = expansion(mult = c(0, 0))
   ) +
-  #annotation_ticks(
+  # annotation_ticks(
   #  sides = "l",
   #  ticklength = 1 * unit(0.1, "cm"),
   #  color = "black"
-  #) +
-  #coord_cartesian(clip = "off") +
+  # ) +
+  # coord_cartesian(clip = "off") +
   theme_bw() +
   theme(
     legend.background = element_rect(fill = "white", color = "black", size = .3),
@@ -299,9 +341,15 @@ plt.hdf <- ggplot(df.hdf, aes(date, value, group = type)) +
 
 ggsave(
   plot = plt.hdf,
+  "exports/mod11a2_clus_6-8_hdf_from_2000_to_2020.png",
+  width = 10, height = 12, units = "cm", dpi = 1000
+)
+
+ggsave(
+  plot = plt.hdf,
   sprintf(
-    "exports/%s_clus%s_hdf_from_%s_to_%s.png",
-    k.data, k.regions, 2000, 2020
+    "exports/%s_clus_%s_hdf_from_%s_to_%s.png",
+    k.data, k.region, 2000, 2020
   ),
   width = 10, height = 12, units = "cm", dpi = 1000
 )
